@@ -49,9 +49,11 @@ export default function MapView() {
   const { data: allMoistureReadings = {} } = useQuery<Record<string, MoistureReading>>({
     queryKey: ['/api/moisture-readings/latest'],
     enabled: roadAssets.some(asset => asset.lastMoistureReading !== null),
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes to prevent reloading on zoom
+    staleTime: 10 * 60 * 1000, // Cache for 10 minutes to prevent reloading on zoom
+    gcTime: 15 * 60 * 1000, // Keep in cache for 15 minutes
     refetchOnWindowFocus: false, // Don't refetch when window gains focus
     refetchOnMount: false, // Don't refetch on component mount if data exists
+    refetchOnReconnect: false, // Don't refetch on reconnect
   });
   
   // Update rainfall mutation

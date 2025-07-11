@@ -2301,6 +2301,7 @@ export class DatabaseStorage implements IStorage {
   // Get only the latest moisture reading per coordinate (optimized for map view)
   async getLatestMoistureReadings(): Promise<Record<string, MoistureReading>> {
     // Use proper Drizzle ORM with raw SQL for PostgreSQL DISTINCT ON
+    // This query should be very fast with proper indexing
     const result = await pool.query(`
       SELECT DISTINCT ON (latitude, longitude) 
         id, road_asset_id, latitude, longitude, moisture_value, reading_date, created_at

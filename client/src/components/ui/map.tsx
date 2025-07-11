@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { 
   MapContainer, 
   TileLayer, 
@@ -77,35 +77,39 @@ function MoistureReadingsLayer({
 }) {
   // Moisture readings layer with optimized coordinate-based grouping
   
-  // For local mode, calculate min/max per road asset for proper relative coloring
-  const roadRanges: Record<number, {min: number, max: number}> = {};
-  
-  if (rangeMode === "local" && Object.keys(readings).length > 0) {
-    // Group readings by road asset ID to calculate ranges per road
-    const readingsByRoad: Record<number, MoistureReading[]> = {};
+  // Memoize expensive road range calculations to prevent recalculation on zoom/pan
+  const roadRanges = useMemo(() => {
+    const ranges: Record<number, {min: number, max: number}> = {};
     
-    Object.values(readings).forEach(reading => {
-      if (!readingsByRoad[reading.roadAssetId]) {
-        readingsByRoad[reading.roadAssetId] = [];
-      }
-      readingsByRoad[reading.roadAssetId].push(reading);
-    });
+    if (rangeMode === "local" && Object.keys(readings).length > 0) {
+      // Group readings by road asset ID to calculate ranges per road
+      const readingsByRoad: Record<number, MoistureReading[]> = {};
+      
+      Object.values(readings).forEach(reading => {
+        if (!readingsByRoad[reading.roadAssetId]) {
+          readingsByRoad[reading.roadAssetId] = [];
+        }
+        readingsByRoad[reading.roadAssetId].push(reading);
+      });
+      
+      // Calculate min/max for each road
+      Object.entries(readingsByRoad).forEach(([roadId, roadReadings]) => {
+        const moistureValues = roadReadings.map(r => r.moistureValue);
+        let minMoisture = Math.min(...moistureValues);
+        let maxMoisture = Math.max(...moistureValues);
+        
+        // Ensure we have some range to work with
+        if (maxMoisture === minMoisture) {
+          minMoisture = Math.max(0, minMoisture - 5);
+          maxMoisture = Math.min(100, maxMoisture + 5);
+        }
+        
+        ranges[parseInt(roadId)] = { min: minMoisture, max: maxMoisture };
+      });
+    }
     
-    // Calculate min/max for each road
-    Object.entries(readingsByRoad).forEach(([roadId, roadReadings]) => {
-      const moistureValues = roadReadings.map(r => r.moistureValue);
-      let minMoisture = Math.min(...moistureValues);
-      let maxMoisture = Math.max(...moistureValues);
-      
-      // Ensure we have some range to work with
-      if (maxMoisture === minMoisture) {
-        minMoisture = Math.max(0, minMoisture - 5);
-        maxMoisture = Math.min(100, maxMoisture + 5);
-      }
-      
-      roadRanges[parseInt(roadId)] = { min: minMoisture, max: maxMoisture };
-    });
-  }
+    return ranges;
+  }, [readings, rangeMode]); // Only recalculate when readings or rangeMode changes
   
   // Process readings based on selected range mode
   return (
