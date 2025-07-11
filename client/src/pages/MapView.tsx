@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { RoadAsset, MoistureReading, getConditionState } from "@shared/schema";
+import { LatLngBounds } from "leaflet";
 import { 
   Card, 
   CardContent, 
@@ -38,6 +39,7 @@ export default function MapView() {
   const [isAssetDialogOpen, setIsAssetDialogOpen] = useState(false);
   const [mapFilter, setMapFilter] = useState<string>("all");
   const [viewMode, setViewMode] = useState<"pci" | "moisture">("pci");
+  const [mapBounds, setMapBounds] = useState<LatLngBounds | null>(null);
   const { toast } = useToast();
   
   // Fetch road assets
@@ -45,15 +47,22 @@ export default function MapView() {
     queryKey: ['/api/road-assets'],
   });
   
-  // Fetch latest moisture readings for all roads with moisture data (optimized for map view)
+  // Fetch latest moisture readings only for the visible map area (viewport-based loading)
   const { data: allMoistureReadings = {} } = useQuery<Record<string, MoistureReading>>({
-    queryKey: ['/api/moisture-readings/latest'],
-    enabled: roadAssets.some(asset => asset.lastMoistureReading !== null),
-    staleTime: 10 * 60 * 1000, // Cache for 10 minutes to prevent reloading on zoom
-    gcTime: 15 * 60 * 1000, // Keep in cache for 15 minutes
+    queryKey: ['/api/moisture-readings/latest', mapBounds?.toBBoxString()],
+    enabled: roadAssets.some(asset => asset.lastMoistureReading !== null) && mapBounds !== null,
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
     refetchOnWindowFocus: false, // Don't refetch when window gains focus
     refetchOnMount: false, // Don't refetch on component mount if data exists
     refetchOnReconnect: false, // Don't refetch on reconnect
+    queryFn: async () => {
+      if (!mapBounds) return {};
+      const bounds = mapBounds.toBBoxString(); // "minLng,minLat,maxLng,maxLat"
+      const response = await fetch(`/api/moisture-readings/latest?bounds=${bounds}`);
+      if (!response.ok) throw new Error('Failed to fetch moisture readings');
+      return response.json();
+    },
   });
   
   // Update rainfall mutation
@@ -100,6 +109,11 @@ export default function MapView() {
     setSelectedAsset(asset);
     setIsAssetDialogOpen(true);
   };
+
+  // Callback to handle map bounds changes (viewport-based loading)
+  const handleMapBoundsChange = useCallback((bounds: LatLngBounds) => {
+    setMapBounds(bounds);
+  }, []);
 
   // Map center coordinates (calculated from the assets)
   const getMapCenter = (): [number, number] => {
@@ -255,6 +269,7 @@ export default function MapView() {
                     center={getMapCenter()}
                     onAssetClick={handleAssetClick}
                     initialLayer={viewMode === "pci" ? "pci" : "moisture"}
+                    onBoundsChange={handleMapBoundsChange}
                   />
                 )}
               </div>

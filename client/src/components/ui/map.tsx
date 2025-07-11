@@ -28,9 +28,10 @@ interface MapProps {
   onAssetClick?: (asset: RoadAsset) => void;
   initialLayer?: "pci" | "moisture";
   moistureReadings?: Record<string, MoistureReading>;
+  onBoundsChange?: (bounds: L.LatLngBounds) => void;
 }
 
-function MapController({ roadAssets }: { roadAssets: RoadAsset[] }) {
+function MapController({ roadAssets, onBoundsChange }: { roadAssets: RoadAsset[], onBoundsChange?: (bounds: L.LatLngBounds) => void }) {
   const map = useMap();
   
   useEffect(() => {
@@ -51,6 +52,30 @@ function MapController({ roadAssets }: { roadAssets: RoadAsset[] }) {
       }
     }
   }, [map, roadAssets]);
+  
+  // Track bounds changes for viewport-based loading
+  useEffect(() => {
+    if (!onBoundsChange) return;
+    
+    const handleBoundsChange = () => {
+      const bounds = map.getBounds();
+      onBoundsChange(bounds);
+    };
+    
+    // Initial bounds
+    map.whenReady(() => {
+      handleBoundsChange();
+    });
+    
+    // Add event listeners for map interactions
+    map.on('moveend', handleBoundsChange);
+    map.on('zoomend', handleBoundsChange);
+    
+    return () => {
+      map.off('moveend', handleBoundsChange);
+      map.off('zoomend', handleBoundsChange);
+    };
+  }, [map, onBoundsChange]);
   
   return null;
 }
@@ -212,7 +237,8 @@ export default function Map({
   zoom = 13, // Higher zoom to better see streets
   onAssetClick,
   initialLayer = "pci",
-  moistureReadings = {}
+  moistureReadings = {},
+  onBoundsChange
 }: MapProps) {
   const [selectedAsset, setSelectedAsset] = useState<RoadAsset | null>(null);
   const [activeLayer, setActiveLayer] = useState<"pci" | "moisture">(initialLayer);
@@ -606,7 +632,7 @@ export default function Map({
         )}
       </AnimatePresence>
       
-      <MapController roadAssets={roadAssets} />
+      <MapController roadAssets={roadAssets} onBoundsChange={onBoundsChange} />
       
       {selectedAsset && selectedAsset.geometry && 
         typeof selectedAsset.geometry === 'object' && 

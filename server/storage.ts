@@ -2298,16 +2298,32 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(moistureReadings.readingDate));
   }
 
-  // Get only the latest moisture reading per coordinate (optimized for map view)
-  async getLatestMoistureReadings(): Promise<Record<string, MoistureReading>> {
+  // Get only the latest moisture reading per coordinate (optimized for map view with spatial filtering)
+  async getLatestMoistureReadings(bounds?: string): Promise<Record<string, MoistureReading>> {
     // Use proper Drizzle ORM with raw SQL for PostgreSQL DISTINCT ON
     // This query should be very fast with proper indexing
-    const result = await pool.query(`
+    let query = `
       SELECT DISTINCT ON (latitude, longitude) 
         id, road_asset_id, latitude, longitude, moisture_value, reading_date, created_at
       FROM moisture_readings 
-      ORDER BY latitude, longitude, created_at DESC
-    `);
+    `;
+    
+    const params: any[] = [];
+    
+    // Add spatial filtering if bounds are provided
+    if (bounds) {
+      try {
+        const [minLng, minLat, maxLng, maxLat] = bounds.split(',').map(Number);
+        query += ` WHERE latitude BETWEEN $1 AND $2 AND longitude BETWEEN $3 AND $4`;
+        params.push(minLat, maxLat, minLng, maxLng);
+      } catch (error) {
+        console.error("Invalid bounds format:", bounds);
+      }
+    }
+    
+    query += ` ORDER BY latitude, longitude, created_at DESC`;
+    
+    const result = await pool.query(query, params);
     
     const latestReadings: Record<string, MoistureReading> = {};
     

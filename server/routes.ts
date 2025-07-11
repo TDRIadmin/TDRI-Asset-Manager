@@ -1607,8 +1607,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // New optimized endpoint for map view - only gets latest moisture reading per asset
   app.get("/api/moisture-readings/latest", async (req: Request, res: Response) => {
     try {
-      // Use the optimized storage method to get latest readings
-      const latestReadings = await storage.getLatestMoistureReadings();
+      // Use the optimized storage method to get latest readings with spatial filtering
+      const bounds = req.query.bounds as string;
+      const latestReadings = await storage.getLatestMoistureReadings(bounds);
       res.json(latestReadings);
     } catch (error) {
       console.error("Error getting latest moisture readings:", error);
