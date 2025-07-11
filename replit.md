@@ -10,6 +10,8 @@ Preferred communication style: Simple, everyday language.
 
 ## System Architecture
 
+**📋 Framework Reference**: See `FRAMEWORKS_AND_CONVENTIONS.md` for detailed documentation of all frameworks, libraries, and coding conventions used in this project.
+
 ### Frontend Architecture
 - **Framework**: React with TypeScript
 - **UI Components**: Shadcn/UI components with Tailwind CSS
