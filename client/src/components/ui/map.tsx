@@ -33,9 +33,11 @@ interface MapProps {
 
 function MapController({ roadAssets, onBoundsChange }: { roadAssets: RoadAsset[], onBoundsChange?: (bounds: L.LatLngBounds) => void }) {
   const map = useMap();
+  const [hasInitiallyFit, setHasInitiallyFit] = useState(false);
   
+  // Only fit bounds on initial load, not on every roadAssets change
   useEffect(() => {
-    if (roadAssets.length > 0) {
+    if (roadAssets.length > 0 && !hasInitiallyFit) {
       const bounds = new L.LatLngBounds([]);
       
       roadAssets.forEach(asset => {
@@ -49,9 +51,10 @@ function MapController({ roadAssets, onBoundsChange }: { roadAssets: RoadAsset[]
       
       if (bounds.isValid()) {
         map.fitBounds(bounds, { padding: [50, 50] });
+        setHasInitiallyFit(true);
       }
     }
-  }, [map, roadAssets]);
+  }, [map, roadAssets, hasInitiallyFit]);
   
   // Track bounds changes for viewport-based loading
   useEffect(() => {
