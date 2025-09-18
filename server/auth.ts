@@ -32,6 +32,59 @@ export function setupAuth(app: Express) {
     })
   );
 
+  // Development-only direct login (bypasses magic link)
+  app.post('/api/auth/dev-login', async (req: Request, res: Response) => {
+    // Only allow in development
+    if (process.env.NODE_ENV !== 'development') {
+      return res.status(403).json({ error: 'Development login only available in development mode' });
+    }
+
+    try {
+      const { email } = req.body;
+
+      if (!email) {
+        return res.status(400).json({ error: 'Email is required' });
+      }
+
+      // Find user by email
+      const userQuery = `
+        SELECT * FROM users WHERE email = $1
+      `;
+      const userResult = await pool.query(userQuery, [email]);
+      const user = userResult.rows[0];
+      
+      if (!user) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+
+      // Set up session directly with save callback to ensure persistence
+      req.session.userId = user.id;
+      req.session.username = user.username;
+      req.session.isAuthenticated = true;
+      req.session.currentTenantId = user.current_tenant_id;
+
+      req.session.save((err) => {
+        if (err) {
+          console.error("Error saving dev login session:", err);
+          return res.status(500).json({ error: 'Session error' });
+        }
+        
+        console.log(`Development login successful for user: ${email}`);
+        return res.status(200).json({ 
+          message: 'Development login successful',
+          user: {
+            id: user.id,
+            username: user.username,
+            currentTenantId: user.current_tenant_id
+          }
+        });
+      });
+    } catch (error) {
+      console.error('Development login error:', error);
+      return res.status(500).json({ error: 'Server error' });
+    }
+  });
+
   // Magic link login request
   app.post('/api/auth/login', async (req: Request, res: Response) => {
     try {

@@ -49,8 +49,35 @@ export default function AuthPage() {
     },
   });
 
+  const devLoginMutation = useMutation({
+    mutationFn: async (data: z.infer<typeof formSchema>) => {
+      const res = await apiRequest("POST", "/api/auth/dev-login", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Development login successful",
+        description: "You have been logged in directly.",
+      });
+      // Refresh the page to trigger authentication check
+      window.location.href = '/';
+    },
+    onError: (error) => {
+      console.error("Dev login error:", error);
+      toast({
+        variant: "destructive",
+        title: "Development login failed",
+        description: "Failed to log in directly. Please try again.",
+      });
+    },
+  });
+
   const onSubmit = (data: z.infer<typeof formSchema>) => {
     loginMutation.mutate(data);
+  };
+
+  const onDevLogin = (data: z.infer<typeof formSchema>) => {
+    devLoginMutation.mutate(data);
   };
 
   return (
@@ -100,10 +127,29 @@ export default function AuthPage() {
                       type="submit" 
                       className="w-full"
                       disabled={loginMutation.isPending}
+                      data-testid="button-send-magic-link"
                     >
                       {loginMutation.isPending ? "Sending..." : "Send Magic Link"}
                     </Button>
                   </form>
+                  
+                  {/* Development login - only show in development */}
+                  {import.meta.env.DEV && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <p className="text-xs text-yellow-600 mb-2 text-center">
+                        Development Mode: Quick Login
+                      </p>
+                      <Button
+                        onClick={() => onDevLogin(form.getValues())}
+                        variant="outline"
+                        className="w-full"
+                        disabled={devLoginMutation.isPending || !form.getValues().email}
+                        data-testid="button-dev-login"
+                      >
+                        {devLoginMutation.isPending ? "Logging in..." : "Dev Login (Skip Magic Link)"}
+                      </Button>
+                    </div>
+                  )}
                 </Form>
               )}
             </CardContent>
