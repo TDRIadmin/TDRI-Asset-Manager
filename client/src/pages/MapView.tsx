@@ -33,7 +33,7 @@ import { format } from "date-fns";
 import { RefreshCw, CloudRain, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { debounce } from "@/lib/utils";
+import { debounce, expandBounds, isWithinLoadedArea } from "@/lib/utils";
 
 export default function MapView() {
   const [selectedAsset, setSelectedAsset] = useState<RoadAsset | null>(null);
@@ -41,6 +41,8 @@ export default function MapView() {
   const [mapFilter, setMapFilter] = useState<string>("all");
   const [viewMode, setViewMode] = useState<"pci" | "moisture">("pci");
   const [mapBounds, setMapBounds] = useState<LatLngBounds | null>(null);
+  const [loadedBounds, setLoadedBounds] = useState<LatLngBounds | null>(null);
+  const [queryBounds, setQueryBounds] = useState<LatLngBounds | null>(null);
   const { toast } = useToast();
   
   // Fetch road assets
@@ -48,23 +50,33 @@ export default function MapView() {
     queryKey: ['/api/road-assets'],
   });
   
-  // Fetch latest moisture readings only for the visible map area (viewport-based loading)
-  const { data: allMoistureReadings = {}, isLoading: isMoistureLoading } = useQuery<Record<string, MoistureReading>>({
-    queryKey: ['/api/moisture-readings/latest', mapBounds?.toBBoxString()],
-    enabled: roadAssets.some(asset => asset.lastMoistureReading !== null) && mapBounds !== null,
+  // Fetch latest moisture readings with smart caching to prevent flickering
+  const { data: allMoistureReadings = {}, isLoading: isMoistureLoading, isSuccess: isMoistureSuccess } = useQuery<Record<string, MoistureReading>>({
+    queryKey: ['/api/moisture-readings/latest', queryBounds?.toBBoxString()],
+    enabled: roadAssets.some(asset => asset.lastMoistureReading !== null) && queryBounds !== null,
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
     gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
     refetchOnWindowFocus: false, // Don't refetch when window gains focus
     refetchOnMount: false, // Don't refetch on component mount if data exists
     refetchOnReconnect: false, // Don't refetch on reconnect
     queryFn: async () => {
-      if (!mapBounds) return {};
-      const bounds = mapBounds.toBBoxString(); // "minLng,minLat,maxLng,maxLat"
+      if (!queryBounds) return {};
+      const bounds = queryBounds.toBBoxString(); // "minLng,minLat,maxLng,maxLat"
       const response = await fetch(`/api/moisture-readings/latest?bounds=${bounds}`);
       if (!response.ok) throw new Error('Failed to fetch moisture readings');
       return response.json();
     },
   });
+
+  // Handle successful moisture data fetch - update loaded bounds
+  useEffect(() => {
+    if (isMoistureSuccess && queryBounds && allMoistureReadings) {
+      // When new data arrives, expand our loaded bounds to include the padded area
+      // The server adds 20% padding, so we reflect that here
+      const paddedBounds = expandBounds(queryBounds, 0.2); // 20% padding to match server
+      setLoadedBounds(paddedBounds);
+    }
+  }, [isMoistureSuccess, queryBounds, allMoistureReadings]);
   
   // Update rainfall mutation
   const updateRainfallMutation = useMutation({
@@ -112,12 +124,17 @@ export default function MapView() {
   };
 
   // Debounced callback to handle map bounds changes with 500ms delay
-  // This prevents excessive API calls during continuous panning/zooming
+  // Smart caching: only trigger new queries when viewport moves outside loaded area
   const handleMapBoundsChange = useMemo(
     () => debounce((bounds: LatLngBounds) => {
       setMapBounds(bounds);
+      
+      // Only trigger new query if we've moved outside the loaded area or have no loaded data
+      if (!loadedBounds || !isWithinLoadedArea(bounds, loadedBounds)) {
+        setQueryBounds(bounds);
+      }
     }, 500),
-    []
+    [loadedBounds]
   );
 
   // Map center coordinates (calculated from the assets)
