@@ -29,10 +29,9 @@ interface MapProps {
   initialLayer?: "pci" | "moisture";
   moistureReadings?: Record<string, MoistureReading>;
   onBoundsChange?: (bounds: L.LatLngBounds) => void;
-  onMoveChange?: (bounds: L.LatLngBounds) => void;
 }
 
-function MapController({ roadAssets, onBoundsChange, onMoveChange }: { roadAssets: RoadAsset[], onBoundsChange?: (bounds: L.LatLngBounds) => void, onMoveChange?: (bounds: L.LatLngBounds) => void }) {
+function MapController({ roadAssets, onBoundsChange }: { roadAssets: RoadAsset[], onBoundsChange?: (bounds: L.LatLngBounds) => void }) {
   const map = useMap();
   const [hasInitiallyFit, setHasInitiallyFit] = useState(false);
   
@@ -59,20 +58,11 @@ function MapController({ roadAssets, onBoundsChange, onMoveChange }: { roadAsset
   
   // Track bounds changes for viewport-based loading
   useEffect(() => {
-    if (!onBoundsChange && !onMoveChange) return;
+    if (!onBoundsChange) return;
     
     const handleBoundsChange = () => {
       const bounds = map.getBounds();
-      if (onBoundsChange) {
-        onBoundsChange(bounds);
-      }
-    };
-
-    const handleMoveChange = () => {
-      const bounds = map.getBounds();
-      if (onMoveChange) {
-        onMoveChange(bounds);
-      }
+      onBoundsChange(bounds);
     };
     
     // Initial bounds
@@ -81,26 +71,14 @@ function MapController({ roadAssets, onBoundsChange, onMoveChange }: { roadAsset
     });
     
     // Add event listeners for map interactions
-    if (onBoundsChange) {
-      map.on('moveend', handleBoundsChange);
-      map.on('zoomend', handleBoundsChange);
-    }
-
-    // Add move event listener for real-time updates during dragging
-    if (onMoveChange) {
-      map.on('move', handleMoveChange);
-    }
+    map.on('moveend', handleBoundsChange);
+    map.on('zoomend', handleBoundsChange);
     
     return () => {
-      if (onBoundsChange) {
-        map.off('moveend', handleBoundsChange);
-        map.off('zoomend', handleBoundsChange);
-      }
-      if (onMoveChange) {
-        map.off('move', handleMoveChange);
-      }
+      map.off('moveend', handleBoundsChange);
+      map.off('zoomend', handleBoundsChange);
     };
-  }, [map, onBoundsChange, onMoveChange]);
+  }, [map, onBoundsChange]);
   
   return null;
 }
@@ -114,6 +92,54 @@ interface MoistureThresholds {
   medium: number;
   high: number;
 }
+
+// Viewport-aware moisture layer that updates during dragging
+const ViewportAwareMoistureLayer = ({ 
+  allCachedReadings, 
+  rangeMode, 
+  thresholds 
+}: { 
+  allCachedReadings: Record<string, MoistureReading>;
+  rangeMode: MoistureRangeMode;
+  thresholds: MoistureThresholds;
+}) => {
+  const map = useMap();
+  const [viewportReadings, setViewportReadings] = useState<Record<string, MoistureReading>>({});
+
+  // Update viewport readings when map moves
+  useEffect(() => {
+    const updateViewportReadings = () => {
+      if (!map) return;
+      
+      const bounds = map.getBounds();
+      const filtered: Record<string, MoistureReading> = {};
+      
+      Object.entries(allCachedReadings).forEach(([key, reading]) => {
+        if (bounds.contains([reading.latitude, reading.longitude])) {
+          filtered[key] = reading;
+        }
+      });
+      
+      setViewportReadings(filtered);
+    };
+
+    // Initial update
+    updateViewportReadings();
+
+    // Listen to map move events for real-time updates during dragging
+    map.on('move', updateViewportReadings);
+    map.on('moveend', updateViewportReadings);
+    map.on('zoomend', updateViewportReadings);
+
+    return () => {
+      map.off('move', updateViewportReadings);
+      map.off('moveend', updateViewportReadings);
+      map.off('zoomend', updateViewportReadings);
+    };
+  }, [map, allCachedReadings]);
+
+  return <MoistureReadingsLayer readings={viewportReadings} rangeMode={rangeMode} thresholds={thresholds} />;
+};
 
 // Component for rendering moisture reading markers
 // Memoized to prevent re-renders when map pans/zooms without data changes
@@ -264,8 +290,7 @@ export default function Map({
   onAssetClick,
   initialLayer = "pci",
   moistureReadings = {},
-  onBoundsChange,
-  onMoveChange
+  onBoundsChange
 }: MapProps) {
   const [selectedAsset, setSelectedAsset] = useState<RoadAsset | null>(null);
   const [activeLayer, setActiveLayer] = useState<"pci" | "moisture">(initialLayer);
@@ -420,10 +445,10 @@ export default function Map({
             );
           })}
           
-          {/* Render all the individual moisture reading markers */}
+          {/* Render all the individual moisture reading markers with viewport-aware filtering */}
           {hasMoistureReadings && (
-            <MoistureReadingsLayer 
-              readings={moistureReadings} 
+            <ViewportAwareMoistureLayer 
+              allCachedReadings={moistureReadings} 
               rangeMode={moistureRangeMode} 
               thresholds={moistureThresholds} 
             />
@@ -659,7 +684,7 @@ export default function Map({
         )}
       </AnimatePresence>
       
-      <MapController roadAssets={roadAssets} onBoundsChange={onBoundsChange} onMoveChange={onMoveChange} />
+      <MapController roadAssets={roadAssets} onBoundsChange={onBoundsChange} />
       
       {selectedAsset && selectedAsset.geometry && 
         typeof selectedAsset.geometry === 'object' && 
