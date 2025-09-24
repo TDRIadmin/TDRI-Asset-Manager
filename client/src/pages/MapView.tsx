@@ -33,7 +33,15 @@ import { format } from "date-fns";
 import { RefreshCw, CloudRain, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { debounce, expandBounds, isWithinLoadedArea } from "@/lib/utils";
+import { 
+  debounce, 
+  expandBounds,
+  CachedRegion,
+  getCachedDataForViewport,
+  updateCacheAccess,
+  addCachedRegion,
+  getCacheStats
+} from "@/lib/utils";
 
 export default function MapView() {
   const [selectedAsset, setSelectedAsset] = useState<RoadAsset | null>(null);
@@ -41,8 +49,10 @@ export default function MapView() {
   const [mapFilter, setMapFilter] = useState<string>("all");
   const [viewMode, setViewMode] = useState<"pci" | "moisture">("pci");
   const [mapBounds, setMapBounds] = useState<LatLngBounds | null>(null);
-  const [loadedBounds, setLoadedBounds] = useState<LatLngBounds | null>(null);
+  // Multi-region cache state - replaces simple loadedBounds/queryBounds
+  const [cachedRegions, setCachedRegions] = useState<CachedRegion[]>([]);
   const [queryBounds, setQueryBounds] = useState<LatLngBounds | null>(null);
+  const [currentMoistureData, setCurrentMoistureData] = useState<Record<string, MoistureReading>>({});
   const { toast } = useToast();
   
   // Fetch road assets
@@ -68,15 +78,22 @@ export default function MapView() {
     },
   });
 
-  // Handle successful moisture data fetch - update loaded bounds
+  // Handle successful moisture data fetch - update multi-region cache
   useEffect(() => {
     if (isMoistureSuccess && queryBounds && allMoistureReadings) {
-      // When new data arrives, expand our loaded bounds to include the padded area
-      // The server adds 20% padding, so we reflect that here
+      // When new data arrives, add it to our multi-region cache with server padding
       const paddedBounds = expandBounds(queryBounds, 0.2); // 20% padding to match server
-      setLoadedBounds(paddedBounds);
+      setCachedRegions(prevRegions => addCachedRegion(prevRegions, paddedBounds, allMoistureReadings));
     }
   }, [isMoistureSuccess, queryBounds, allMoistureReadings]);
+
+  // Debug: Log cache statistics for monitoring
+  useEffect(() => {
+    if (cachedRegions.length > 0) {
+      const stats = getCacheStats(cachedRegions);
+      console.log(`[Multi-Region Cache] Regions: ${stats.totalRegions}/150, Data Points: ${stats.totalDataPoints}, Avg Access: ${stats.averageAccessCount.toFixed(1)}`);
+    }
+  }, [cachedRegions]);
   
   // Update rainfall mutation
   const updateRainfallMutation = useMutation({
@@ -123,18 +140,47 @@ export default function MapView() {
     setIsAssetDialogOpen(true);
   };
 
+  // Check cache and update current moisture data when map bounds change
+  useEffect(() => {
+    if (!mapBounds) return;
+
+    // Check if current viewport is covered by cached data (read-only check)
+    const { data: cachedData, isFullyCovered, overlappingRegionIds } = getCachedDataForViewport(mapBounds, cachedRegions);
+    
+    if (isFullyCovered) {
+      // Use cached data immediately - no API call needed! 
+      // This works even when multiple overlapping regions together provide full coverage
+      setCurrentMoistureData(cachedData);
+      
+      // Update access statistics for cache hit (only if we have overlapping regions)
+      if (overlappingRegionIds.length > 0) {
+        setCachedRegions(prevRegions => updateCacheAccess(prevRegions, overlappingRegionIds));
+        console.log(`[Cache Hit] Viewport fully covered by ${overlappingRegionIds.length} cached regions - no API call needed`);
+      }
+    } else {
+      // Partially covered or no coverage - show cached data while loading new data
+      setCurrentMoistureData(cachedData); // Show what we have
+      
+      // Update access statistics for partial cache hit
+      if (overlappingRegionIds.length > 0) {
+        setCachedRegions(prevRegions => updateCacheAccess(prevRegions, overlappingRegionIds));
+      }
+      
+      // Only trigger new query if not already loading
+      if (!isMoistureLoading) {
+        setQueryBounds(mapBounds);
+        console.log(`[Cache Miss] Viewport needs new data - triggering API call`);
+      }
+    }
+  }, [mapBounds, isMoistureLoading]); // Removed cachedRegions dependency to break infinite loop
+
   // Debounced callback to handle map bounds changes with 500ms delay
-  // Smart caching: only trigger new queries when viewport moves outside loaded area
+  // Multi-region cache: instantly show cached data, fetch missing areas
   const handleMapBoundsChange = useMemo(
     () => debounce((bounds: LatLngBounds) => {
       setMapBounds(bounds);
-      
-      // Only trigger new query if we've moved outside the loaded area or have no loaded data
-      if (!loadedBounds || !isWithinLoadedArea(bounds, loadedBounds)) {
-        setQueryBounds(bounds);
-      }
     }, 500),
-    [loadedBounds]
+    []
   );
 
   // Map center coordinates (calculated from the assets)
@@ -287,7 +333,7 @@ export default function MapView() {
                   <>
                     <Map 
                       roadAssets={filteredAssets}
-                      moistureReadings={allMoistureReadings}
+                      moistureReadings={currentMoistureData}
                       height="h-full" 
                       center={getMapCenter()}
                       onAssetClick={handleAssetClick}
