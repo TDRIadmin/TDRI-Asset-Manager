@@ -29,9 +29,10 @@ interface MapProps {
   initialLayer?: "pci" | "moisture";
   moistureReadings?: Record<string, MoistureReading>;
   onBoundsChange?: (bounds: L.LatLngBounds) => void;
+  onMoveChange?: (bounds: L.LatLngBounds) => void;
 }
 
-function MapController({ roadAssets, onBoundsChange }: { roadAssets: RoadAsset[], onBoundsChange?: (bounds: L.LatLngBounds) => void }) {
+function MapController({ roadAssets, onBoundsChange, onMoveChange }: { roadAssets: RoadAsset[], onBoundsChange?: (bounds: L.LatLngBounds) => void, onMoveChange?: (bounds: L.LatLngBounds) => void }) {
   const map = useMap();
   const [hasInitiallyFit, setHasInitiallyFit] = useState(false);
   
@@ -58,11 +59,20 @@ function MapController({ roadAssets, onBoundsChange }: { roadAssets: RoadAsset[]
   
   // Track bounds changes for viewport-based loading
   useEffect(() => {
-    if (!onBoundsChange) return;
+    if (!onBoundsChange && !onMoveChange) return;
     
     const handleBoundsChange = () => {
       const bounds = map.getBounds();
-      onBoundsChange(bounds);
+      if (onBoundsChange) {
+        onBoundsChange(bounds);
+      }
+    };
+
+    const handleMoveChange = () => {
+      const bounds = map.getBounds();
+      if (onMoveChange) {
+        onMoveChange(bounds);
+      }
     };
     
     // Initial bounds
@@ -71,14 +81,26 @@ function MapController({ roadAssets, onBoundsChange }: { roadAssets: RoadAsset[]
     });
     
     // Add event listeners for map interactions
-    map.on('moveend', handleBoundsChange);
-    map.on('zoomend', handleBoundsChange);
+    if (onBoundsChange) {
+      map.on('moveend', handleBoundsChange);
+      map.on('zoomend', handleBoundsChange);
+    }
+
+    // Add move event listener for real-time updates during dragging
+    if (onMoveChange) {
+      map.on('move', handleMoveChange);
+    }
     
     return () => {
-      map.off('moveend', handleBoundsChange);
-      map.off('zoomend', handleBoundsChange);
+      if (onBoundsChange) {
+        map.off('moveend', handleBoundsChange);
+        map.off('zoomend', handleBoundsChange);
+      }
+      if (onMoveChange) {
+        map.off('move', handleMoveChange);
+      }
     };
-  }, [map, onBoundsChange]);
+  }, [map, onBoundsChange, onMoveChange]);
   
   return null;
 }
@@ -242,7 +264,8 @@ export default function Map({
   onAssetClick,
   initialLayer = "pci",
   moistureReadings = {},
-  onBoundsChange
+  onBoundsChange,
+  onMoveChange
 }: MapProps) {
   const [selectedAsset, setSelectedAsset] = useState<RoadAsset | null>(null);
   const [activeLayer, setActiveLayer] = useState<"pci" | "moisture">(initialLayer);
@@ -636,7 +659,7 @@ export default function Map({
         )}
       </AnimatePresence>
       
-      <MapController roadAssets={roadAssets} onBoundsChange={onBoundsChange} />
+      <MapController roadAssets={roadAssets} onBoundsChange={onBoundsChange} onMoveChange={onMoveChange} />
       
       {selectedAsset && selectedAsset.geometry && 
         typeof selectedAsset.geometry === 'object' && 

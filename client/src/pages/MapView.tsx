@@ -183,6 +183,26 @@ export default function MapView() {
     []
   );
 
+  // Immediate callback for move events during dragging (no debounce)
+  // Shows cached moisture data instantly as user drags the map
+  const handleMapMoveChange = useMemo(
+    () => (bounds: LatLngBounds) => {
+      // Only update cached moisture data immediately - no API calls or state changes
+      const { data: cachedData, isFullyCovered, overlappingRegionIds } = getCachedDataForViewport(bounds, cachedRegions);
+      
+      if (Object.keys(cachedData).length > 0) {
+        // Show cached data immediately during dragging
+        setCurrentMoistureData(cachedData);
+        
+        // Update access statistics for regions being accessed during drag
+        if (overlappingRegionIds.length > 0) {
+          setCachedRegions(prevRegions => updateCacheAccess(prevRegions, overlappingRegionIds));
+        }
+      }
+    },
+    [cachedRegions] // Only depend on cached regions
+  );
+
   // Map center coordinates (calculated from the assets)
   const getMapCenter = (): [number, number] => {
     if (roadAssets.length === 0) return [40, -74.5]; // Default center
@@ -339,6 +359,7 @@ export default function MapView() {
                       onAssetClick={handleAssetClick}
                       initialLayer={viewMode === "pci" ? "pci" : "moisture"}
                       onBoundsChange={handleMapBoundsChange}
+                      onMoveChange={handleMapMoveChange}
                     />
                     {/* Loading indicator for moisture data specifically */}
                     {viewMode === "moisture" && isMoistureLoading && (
