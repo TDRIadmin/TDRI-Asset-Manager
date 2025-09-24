@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { RoadAsset, MoistureReading, getConditionState } from "@shared/schema";
 import { LatLngBounds } from "leaflet";
@@ -30,9 +30,10 @@ import Map from "@/components/ui/map";
 import { Badge } from "@/components/ui/badge";
 import { getConditionBadgeColor } from "@/lib/utils/color-utils";
 import { format } from "date-fns";
-import { RefreshCw, CloudRain } from "lucide-react";
+import { RefreshCw, CloudRain, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { debounce } from "@/lib/utils";
 
 export default function MapView() {
   const [selectedAsset, setSelectedAsset] = useState<RoadAsset | null>(null);
@@ -48,7 +49,7 @@ export default function MapView() {
   });
   
   // Fetch latest moisture readings only for the visible map area (viewport-based loading)
-  const { data: allMoistureReadings = {} } = useQuery<Record<string, MoistureReading>>({
+  const { data: allMoistureReadings = {}, isLoading: isMoistureLoading } = useQuery<Record<string, MoistureReading>>({
     queryKey: ['/api/moisture-readings/latest', mapBounds?.toBBoxString()],
     enabled: roadAssets.some(asset => asset.lastMoistureReading !== null) && mapBounds !== null,
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
@@ -110,10 +111,14 @@ export default function MapView() {
     setIsAssetDialogOpen(true);
   };
 
-  // Callback to handle map bounds changes (viewport-based loading)
-  const handleMapBoundsChange = useCallback((bounds: LatLngBounds) => {
-    setMapBounds(bounds);
-  }, []);
+  // Debounced callback to handle map bounds changes with 500ms delay
+  // This prevents excessive API calls during continuous panning/zooming
+  const handleMapBoundsChange = useMemo(
+    () => debounce((bounds: LatLngBounds) => {
+      setMapBounds(bounds);
+    }, 500),
+    []
+  );
 
   // Map center coordinates (calculated from the assets)
   const getMapCenter = (): [number, number] => {
@@ -256,21 +261,30 @@ export default function MapView() {
                   </div>
                 </div>
               )}
-              <div className="h-[calc(100vh-300px)] min-h-[400px]">
+              <div className="h-[calc(100vh-300px)] min-h-[400px] relative">
                 {isLoading ? (
                   <div className="h-full flex items-center justify-center">
                     <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary"></div>
                   </div>
                 ) : (
-                  <Map 
-                    roadAssets={filteredAssets}
-                    moistureReadings={allMoistureReadings}
-                    height="h-full" 
-                    center={getMapCenter()}
-                    onAssetClick={handleAssetClick}
-                    initialLayer={viewMode === "pci" ? "pci" : "moisture"}
-                    onBoundsChange={handleMapBoundsChange}
-                  />
+                  <>
+                    <Map 
+                      roadAssets={filteredAssets}
+                      moistureReadings={allMoistureReadings}
+                      height="h-full" 
+                      center={getMapCenter()}
+                      onAssetClick={handleAssetClick}
+                      initialLayer={viewMode === "pci" ? "pci" : "moisture"}
+                      onBoundsChange={handleMapBoundsChange}
+                    />
+                    {/* Loading indicator for moisture data specifically */}
+                    {viewMode === "moisture" && isMoistureLoading && (
+                      <div className="absolute top-4 right-4 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-3 flex items-center gap-2 z-[1000]">
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                        <span className="text-sm font-medium">Loading moisture data...</span>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </CardContent>

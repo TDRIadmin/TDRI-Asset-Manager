@@ -2310,12 +2310,27 @@ export class DatabaseStorage implements IStorage {
     
     const params: any[] = [];
     
-    // Add spatial filtering if bounds are provided
+    // Add spatial filtering if bounds are provided with 20% padding for pre-loading
     if (bounds) {
       try {
         const [minLng, minLat, maxLng, maxLat] = bounds.split(',').map(Number);
+        
+        // Add 20% padding to pre-load adjacent areas for smoother panning
+        const lngRange = maxLng - minLng;
+        const latRange = maxLat - minLat;
+        const paddingLng = lngRange * 0.2;
+        const paddingLat = latRange * 0.2;
+        
+        const paddedMinLng = minLng - paddingLng;
+        const paddedMinLat = minLat - paddingLat;
+        const paddedMaxLng = maxLng + paddingLng;
+        const paddedMaxLat = maxLat + paddingLat;
+        
+        // Fixed: Correct parameter order - latitude first, then longitude
         query += ` WHERE latitude BETWEEN $1 AND $2 AND longitude BETWEEN $3 AND $4`;
-        params.push(minLat, maxLat, minLng, maxLng);
+        params.push(paddedMinLat, paddedMaxLat, paddedMinLng, paddedMaxLng);
+        
+        console.log(`Filtering moisture readings with padded bounds: lat[${paddedMinLat}, ${paddedMaxLat}], lng[${paddedMinLng}, ${paddedMaxLng}]`);
       } catch (error) {
         console.error("Invalid bounds format:", bounds);
       }
@@ -2340,6 +2355,7 @@ export class DatabaseStorage implements IStorage {
       };
     }
     
+    console.log(`Returning ${Object.keys(latestReadings).length} moisture readings for viewport`);
     return latestReadings;
   }
 

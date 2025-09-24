@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, memo } from "react";
 import { 
   MapContainer, 
   TileLayer, 
@@ -94,7 +94,8 @@ interface MoistureThresholds {
 }
 
 // Component for rendering moisture reading markers
-function MoistureReadingsLayer({ 
+// Memoized to prevent re-renders when map pans/zooms without data changes
+const MoistureReadingsLayer = memo(({ 
   readings, 
   rangeMode, 
   thresholds 
@@ -102,7 +103,7 @@ function MoistureReadingsLayer({
   readings: Record<string, MoistureReading>;
   rangeMode: MoistureRangeMode;
   thresholds: MoistureThresholds;
-}) {
+}) => {
   // Moisture readings layer with optimized coordinate-based grouping
   
   // Memoize expensive road range calculations to prevent recalculation on zoom/pan
@@ -231,7 +232,7 @@ function MoistureReadingsLayer({
         })}
     </>
   );
-}
+});
 
 export default function Map({ 
   roadAssets, 
